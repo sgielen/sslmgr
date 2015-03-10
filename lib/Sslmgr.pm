@@ -8,6 +8,8 @@ Sslmgr - Backing library for the sslmgr tool
 
 use strict;
 use warnings;
+use Crypt::OpenSSL::X509;
+use DateTime::Format::x509;
 
 our $VERSION = "0.1";
 our $RELEASE_DATE = "2015-03-09";
@@ -75,4 +77,33 @@ sub get_keys_and_certs {
 		}
 	}
 	return %keys;
+}
+
+=head2 get_cert_info($keydir, $certname)
+
+Returns a Crypt::OpenSSL::X509 object containing information on the given
+certificate.
+
+=cut
+
+sub get_cert_info {
+	my ($keydir, $certname) = @_;
+	my $certpath = "$keydir/$certname";
+	return Crypt::OpenSSL::X509->new_from_file($certpath);
+}
+
+=head2 get_cert_validity_period($keydir, $certname)
+
+Returns two DateTimes, corresponding to the begin and end validity periods
+of the given certificate.
+
+=cut
+
+sub get_cert_validity_period {
+	my ($keydir, $certname) = @_;
+	my $cert_info = get_cert_info($keydir, $certname);
+	my $df = DateTime::Format::x509->new();
+	my $dt_begin = $df->parse_datetime($cert_info->notBefore());
+	my $dt_after = $df->parse_datetime($cert_info->notAfter());
+	return ($dt_begin, $dt_after);
 }

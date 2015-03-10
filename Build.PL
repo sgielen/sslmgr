@@ -8,4 +8,8 @@ Module::Build->new(
 	test_requires => {
 		'Test::Directory' => 0,
 	},
+	requires => {
+		'Crypt::OpenSSL::X509' => 0,
+		'DateTime::Format::x509' => 0,
+	},
 )->create_build_script;
