@@ -1,0 +1,148 @@
+#!/usr/bin/perl
+use strict;
+use warnings;
+use Getopt::Long;
+use Pod::Usage;
+use Term::ANSIColor;
+use FindBin;
+use lib "$FindBin::Bin/../lib";
+use Sslmgr;
+
+my $SSLKEYDIR = $ENV{SSLKEYDIR} || "/etc/ssl/private";
+my $SSLROOTDIR = $ENV{SSLROOTDIR} || "/etc/ssl/certs";
+
+GetOptions(
+	"K|sslkeydir=s" => \$SSLKEYDIR,
+	"c|sslrootdir=s" => \$SSLROOTDIR,
+	"V|version" => sub { unshift @ARGV, "version" },
+	"h|help" => sub { unshift @ARGV, "help" },
+) or exit 1;
+
+my $command = shift;
+
+if(!$command || $command eq "help") {
+	pod2usage(1);
+} elsif($command eq "version") {
+	print "$Sslmgr::LONG_VERSION\n";
+} elsif($command eq "ls") {
+	my %keys_and_certs = Sslmgr::get_keys_and_certs($SSLKEYDIR);
+	my $missing_keys = 0;
+	my $missing_certs = 0;
+
+	my $cn_length = 0;
+	foreach my $cn (keys %keys_and_certs) {
+		my $length = length($cn);
+		$cn_length = $length if($length > $cn_length);
+	}
+
+	foreach my $cn (sort keys %keys_and_certs) {
+		my ($key, $cert) = @{$keys_and_certs{$cn}};
+		$missing_keys++ if(!$key);
+		$missing_certs++ if(!$cert);
+		my $spaces = ' ' x (2 + $cn_length);
+		my $initial_spaces = ' ' x ($cn_length - length($cn));
+		if(!$cert) {
+			print "$initial_spaces$cn: ".serious("Key without a certificate!")."\n";
+			next;
+		}
+
+		my ($dt_begin, $dt_end) = Sslmgr::get_cert_validity_period($SSLKEYDIR, $cert);
+		my $period = $dt_begin - DateTime->now();
+		my $validity;
+		if($period->is_positive()) {
+			$validity = serious("Not valid yet:") . " valid in " . duration_string($period);
+		} else {
+			$period = $dt_end - DateTime->now();
+			my $expiring_soon = $period->years == 0 && $period->months < 2;
+			if($period->is_negative()) {
+				$validity = serious("No longer valid:") . " valid until " . duration_string($period) . " ago";
+			} elsif($expiring_soon) {
+				$validity = warning("Expiring soon:") . " expires in " . duration_string($period);
+			} else {
+				$validity = "expires in " . duration_string($period);
+			}
+		}
+
+		print "$initial_spaces$cn: ";
+		if(!$key) {
+			print serious("Certificate without a key!")."\n";
+			print $spaces;
+		}
+
+		print $validity . "\n";
+	}
+	printf("\n%d key/cert combinations found.\n", scalar keys %keys_and_certs);
+	if($missing_keys > 0 || $missing_certs > 0) {
+		printf("Warning: %d keys and %d certificates were missing.\n",
+			$missing_keys, $missing_certs);
+	}
+} else {
+	warn "Unknown command: $command\n";
+	pod2usage(1);
+	exit 1;
+}
+
+sub serious {
+	return colored(['bold bright_red'], $_[0]);
+}
+
+sub warning {
+	return colored(['bold bright_yellow'], $_[0]);
+}
+
+sub duration_string {
+	my ($dur) = @_;
+
+	$dur = $dur->inverse if($dur->is_negative());
+
+	my $years = $dur->in_units('years');
+	$dur->subtract(years => $years);
+	my $months = $dur->in_units('months');
+	$dur->subtract(months => $months);
+	my $days = $dur->in_units('days');
+	$dur->subtract(days => $days);
+	my $hours = $dur->in_units('hours');
+	$dur->subtract(hours => $hours);
+	my $minutes = $dur->in_units('minutes');
+	$dur->subtract(minutes => $minutes);
+
+	my @descr;
+	my $push_unit = sub {
+		my ($num, $unit) = @_;
+		push @descr, sprintf("%d %s%s", $num, $unit, $num == 1 ? '' : 's')
+			if $num != 0;
+	};
+	if($years > 1) {
+		push @descr, sprintf("more than %d years", $years);
+	} else {
+		$push_unit->($years, 'year');
+		$push_unit->($months, 'month');
+		$push_unit->($days, 'day') if $years == 0;
+		$push_unit->($hours, 'hour') if $years == 0 && $months == 0;
+		$push_unit->($minutes, 'minute') if $years == 0 && $months == 0 && $hours == 0;
+		push @descr, sprintf("less than a minute") if @descr == 0;
+	}
+
+	my $descr = shift(@descr);
+	if(@descr) {
+		$descr .= " and " . shift(@descr);
+	}
+
+	return $descr;
+}
+
+__END__
+=head1 NAME
+
+sslmgr - an SSL key and certificate manager
+
+=head1 SYNOPSIS
+
+sslmgr [options ...] <command> [arguments ...]
+
+ Options:
+   --sslkeydir -K <dir>     Set private SSL directory
+   --sslrootdir -c <dir>    Set SSL root certificates directory
+
+ Commands:
+   ls                       Show the current list of keys
