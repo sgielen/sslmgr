@@ -4,6 +4,7 @@ use warnings;
 use Getopt::Long;
 use Pod::Usage;
 use Term::ANSIColor;
+use Cwd qw/realpath/;
 use FindBin;
 use lib "$FindBin::Bin/../lib";
 use Sslmgr;
@@ -24,6 +25,44 @@ if(!$command || $command eq "help") {
 	pod2usage(1);
 } elsif($command eq "version") {
 	print "$Sslmgr::LONG_VERSION\n";
+} elsif($command eq "config") {
+	my $sslconfig = $SSLKEYDIR . "/openssl.cnf";
+	if(! -s $sslconfig) {
+		open my $fh, '>', $sslconfig or die $!;
+		my $keydir = realpath($SSLKEYDIR);
+		print $fh <<"EOF";
+dir = $keydir
+
+[req_distinguished_name]
+# Two-letter code for your country
+countryName = 
+
+# State or province name
+stateOrProvinceName = 
+
+# Locality Name (eg, city)
+localityName = 
+
+# Organization Name (eg, company)
+0.organizationName = 
+
+# Optionally, organizational Unit Name (eg, section)
+#organizationalUnitName = 
+
+# Don't modify this value:
+commonName = %COMMONNAME%
+
+[req]
+# The number of bits for any new RSA key
+default_bits = 4096
+
+# Don't modify these values:
+distinguished_name = req_distinguished_name
+prompt = no
+EOF
+		close $fh;
+	}
+	system("vim", "--", $SSLKEYDIR . "/openssl.cnf");
 } elsif($command eq "ls") {
 	my %keys_and_certs = Sslmgr::get_keys_and_certs($SSLKEYDIR);
 	my $missing_keys = 0;
