@@ -115,6 +115,25 @@ EOF
 		printf("Warning: %d keys and %d certificates were missing.\n",
 			$missing_keys, $missing_certs);
 	}
+} elsif($command eq "new" || $command eq "renew") {
+	if(@ARGV != 1) {
+		die "Usage: $0 $command <CN>\n";
+	}
+
+	my $cn = shift;
+	my ($keyfile, $csrfile) = Sslmgr::generate_key_and_csr($SSLKEYDIR, $cn);
+	print "Key generated: $keyfile\n";
+	print "CSR generated: $csrfile\n\n";
+
+	dumpcsr($SSLKEYDIR . '/' . $csrfile);
+} elsif($command eq "getcsr") {
+	if(@ARGV != 1) {
+		die "Usage: $0 $command <CN>\n";
+	}
+
+	my $cn = shift;
+	my $csrfile = "$SSLKEYDIR/$cn.csr";
+	dumpcsr($csrfile);
 } else {
 	warn "Unknown command: $command\n";
 	pod2usage(1);
@@ -170,6 +189,20 @@ sub duration_string {
 	return $descr;
 }
 
+sub dumpcsr {
+	my ($csrfile) = @_;
+	open my $fh, '<', $csrfile or die $!;
+	while(<$fh>) {
+		print;
+	}
+	close $fh;
+
+	print "\nSend this CSR to a certificate authority (CA) of your choosing.\n";
+	print "Then, when you receive the certificate, use 'sslmgr import' to import\n";
+	print "the certificate and build a certificate chain for use in your server.\n";
+	print "To retrieve the CSR again, use 'sslmgr getcsr'.\n";
+}
+
 __END__
 =head1 NAME
 
@@ -184,4 +217,9 @@ sslmgr [options ...] <command> [arguments ...]
    --sslrootdir -c <dir>    Set SSL root certificates directory
 
  Commands:
+   help                     Get this help
+   version                  Display the sslmgr version
+   config                   Configure sslmgr
    ls                       Show the current list of keys
+   new / renew              Generate a new key and CSR
+   getcsr                   Retrieve an existing CSR

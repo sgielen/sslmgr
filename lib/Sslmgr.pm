@@ -10,6 +10,8 @@ use strict;
 use warnings;
 use Crypt::OpenSSL::X509;
 use DateTime::Format::x509;
+use File::Temp qw(tempfile);
+use IPC::Run qw(run);
 
 our $VERSION = "0.1";
 our $RELEASE_DATE = "2015-03-09";
@@ -106,4 +108,62 @@ sub get_cert_validity_period {
 	my $dt_begin = $df->parse_datetime($cert_info->notBefore());
 	my $dt_after = $df->parse_datetime($cert_info->notAfter());
 	return ($dt_begin, $dt_after);
+}
+
+=head2 generate_key_and_csr($keydir, $cn)
+
+Generates a new 4096 bit RSA key without a password, as well as a corresponding
+CSR. Returns the path of the new key and CSR relative to the keydir.
+
+=cut
+
+sub generate_key_and_csr {
+	my ($keydir, $cn) = @_;
+	my $keyfile = $cn . '.key';
+	my $csrfile = $cn . '.csr';
+	my $keypath = $keydir . '/' . $keyfile;
+	my $csrpath = $keydir . '/' . $csrfile;
+	if(-f $csrpath) {
+		unlink($csrpath);
+	}
+
+	my $configfile = get_configfile_for_cn($keydir, $cn);
+	my $out = "";
+	run([qw(openssl req -new -nodes -batch),
+		"-keyout" => $keypath,
+		"-config" => $configfile,
+		"-out" => $csrpath], '>', \$out, '2>&1');
+	if(! -f $keypath || ! -f $csrpath) {
+		warn "Generation of key or CSR file failed:\n";
+		die $out . "\n";
+	}
+	chmod 0600, $keypath;
+	unlink($configfile);
+	return ($keyfile, $csrfile);
+}
+
+=head2 get_configfile_for_cn($keydir, $cn)
+
+Takes an openssl configuration file as '$keydir/openssl.cnf' (which can be
+generated and edited using 'sslmgr config'), copies it to a temporary place
+replacing any '%COMMONNAME%' with the given CN. Then, returns the path to
+the temporary file.
+
+=cut
+
+sub get_configfile_for_cn {
+	my ($keydir, $cn) = @_;
+	my $configfile = $keydir . '/openssl.cnf';
+	if(! -f $configfile) {
+		die "No config file found. Run 'sslmgr config' first.\n";
+	}
+	open my $fh, '<', $configfile or die $!;
+	my ($cfh, $cfile) = tempfile();
+	while(<$fh>) {
+		s/%COMMONNAME%/$cn/;
+		print $cfh $_;
+	}
+	close $cfh;
+	close $fh;
+	return $cfile;
 }
