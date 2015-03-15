@@ -64,6 +64,9 @@ EOF
 	}
 	system("vim", "--", $SSLKEYDIR . "/openssl.cnf");
 } elsif($command eq "ls") {
+	if(@ARGV) {
+		die "Usage: $0 ls\n";
+	}
 	my %keys_and_certs = Sslmgr::get_keys_and_certs($SSLKEYDIR);
 	my $missing_keys = 0;
 	my $missing_certs = 0;
