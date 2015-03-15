@@ -33,16 +33,16 @@ is_deeply({Sslmgr::get_keys_and_certs($dir->path)},
 	 "quux.bar.baz" => ["quux.bar.baz.key", "quux.bar.baz.crt"]},
 	"get_keys_and_certs links new key + cert");
 
-$dir->touch("bar.baz.ca.crt");
+$dir->touch("bar.baz.chain.crt");
 is_deeply([Sslmgr::get_keys($dir->path)],
-	["foo.bar.baz.key", "quux.bar.baz.key"], "get_keys doesn't return CA crt");
+	["foo.bar.baz.key", "quux.bar.baz.key"], "get_keys doesn't return chain crt");
 is_deeply([Sslmgr::get_certs($dir->path)],
-	["foo.bar.quux.crt", "quux.bar.baz.crt"], "get_certs doesn't return CA crt");
+	["foo.bar.quux.crt", "quux.bar.baz.crt"], "get_certs doesn't return chain crt");
 is_deeply({Sslmgr::get_keys_and_certs($dir->path)},
 	{"foo.bar.baz" => ["foo.bar.baz.key", undef],
 	 "foo.bar.quux" => [undef, "foo.bar.quux.crt"],
 	 "quux.bar.baz" => ["quux.bar.baz.key", "quux.bar.baz.crt"]},
-	"get_keys_and_certs doesn't return CA crt");
+	"get_keys_and_certs doesn't return chain crt");
 
 $dir->touch("bar.baz.txt");
 is_deeply([Sslmgr::get_keys($dir->path)],

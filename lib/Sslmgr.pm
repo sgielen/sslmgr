@@ -38,7 +38,7 @@ sub get_keys {
 =head2 get_certs($keydir)
 
 Returns an array with relative paths of all *.crt files from the given keydir,
-but not .ca.crt.
+but not .chain.crt.
 
 This method calls die() if the directory was unreadable.
 
@@ -47,7 +47,7 @@ This method calls die() if the directory was unreadable.
 sub get_certs {
 	my ($keydir) = @_;
 	opendir my $dh, $keydir or die "Failed to open keydir $keydir: $!\n";
-	my @files = grep { /\.crt$/ && !/\.ca\.crt$/ && -f "$keydir/$_" } readdir($dh);
+	my @files = grep { /\.crt$/ && !/\.chain\.crt$/ && -f "$keydir/$_" } readdir($dh);
 	closedir $dh;
 	return @files;
 }
@@ -251,4 +251,99 @@ sub split_marked_files {
 		die "Corrupt input: expected END of $filetype.\n";
 	}
 	return @files;
+}
+
+=head2 has_chain($keydir, $cn)
+
+Checks if the given CN currently has a certificate chain associated with it.
+This does not check the chain validity, but assumes that a chain is valid if it
+exists. Use build_chain to try to build a chain if none exists.
+
+=cut
+
+sub has_chain {
+	my ($keydir, $cn) = @_;
+	my $chainfile = $keydir . '/' . $cn . '.chain.crt';
+	return -f $chainfile;
+}
+
+=head2 build_chain($keydir, $rootstore, $cn)
+
+Builds a certificate chain for the given Common Name. This uses previously
+imported intermediary certificates.
+
+If a trusted path to a certificate in the root store can be found, this method
+creates a chain certificate file with all the intermediary certificates and the
+final certificate, then returns a hashmap with 'built' set to a true value and
+'chain' set to the list of certificates used to build the chain.
+
+If no path can be found, this method returns a hashmap with 'built' set to a
+false value, 'chain' set to the list of certificates found so far, and
+'missing_subject' conveniently set to the issuer_subject of the last
+certificate in the chain.
+
+=cut
+
+sub build_chain {
+	my ($keydir, $rootstore, $cn) = @_;
+
+	my $certfile = $cn . '.crt';
+	my $certpath = $keydir . '/' . $certfile;
+	my $chainfile = $cn . '.chain.crt';
+	my $chainpath = $keydir . '/' . $chainfile;
+	if(! -f $certpath) {
+		die "Can't build a chain for $cn: that certificate does not exist.\n";
+	}
+
+	my $cert_info = get_cert_info($keydir, $certfile);
+	my @certs_in_chain = ($cert_info);
+
+	while(1) {
+		my $cert = $certs_in_chain[$#certs_in_chain];
+
+		# do we have an intermediary cert with that hash?
+		# TODO: we should use the issuer hash here, but issue #41 in
+		# crypt::openssl::x509 prevents this
+		if(-d "$keydir/.intermediary") {
+			opendir my $dh, "$keydir/.intermediary" or die $!;
+			my $intermediary_found = 0;
+			while((my $file = readdir($dh))) {
+				if($file =~ /\.crt$/) {
+					my $path = ".intermediary/$file";
+					my $i_cert_info = get_cert_info($keydir, $path);
+					if($i_cert_info->subject eq $cert->issuer) {
+						$intermediary_found = 1;
+						push @certs_in_chain, $i_cert_info;
+						last;
+					}
+				}
+			}
+			next if($intermediary_found);
+			closedir $dh;
+		}
+
+		# do we have a root cert with that hash?
+		if(is_trusted_root_cert($rootstore, $cert->issuer)) {
+			# OK! Chain is done!
+			# Note: don't include root cert in the chain.
+			open my $fh, '>', $chainpath or die $!;
+			foreach(reverse @certs_in_chain) {
+				print $fh $_->as_string();
+			}
+			close $fh;
+			return (
+				built => 1,
+				chain => \@certs_in_chain,
+			);
+		}
+
+		last;
+	}
+
+	my $last_cert = $certs_in_chain[$#certs_in_chain];
+	return (
+		built => 0,
+		chain => \@certs_in_chain,
+		missing_subject => $last_cert->issuer,
+	);
 }
