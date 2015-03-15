@@ -52,7 +52,12 @@ is(scalar @$build_result, 1, "One chain rebuild was attempted");
 $build_result = $build_result->[0];
 
 $ssl->has_dir(".intermediary", "Intermediary directory created");
-$ssl->has(".intermediary/1987cbba.crt", "Intermediary imported correctly");
+# Two OpenSSL versions seen in the wild had different hashing algorithms...
+if(-f $ssl->path(".intermediary/1987cbba.crt")) {
+	$ssl->has(".intermediary/1987cbba.crt", "Intermediary imported correctly");
+} else {
+	$ssl->has(".intermediary/9da13359.crt", "Intermediary imported correctly");
+}
 $build_result = {Sslmgr::build_chain($ssl->path, $root->path, "www.example.com")};
 is($build_result->{'built'}, 1, "Build chain failed");
 is(scalar @{$build_result->{'chain'}}, 2, "Chain consists of two certs");
