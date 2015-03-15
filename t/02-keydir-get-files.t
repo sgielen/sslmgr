@@ -23,9 +23,9 @@ is_deeply({Sslmgr::get_keys_and_certs($dir->path)},
 
 $dir->touch("quux.bar.baz.key");
 $dir->touch("quux.bar.baz.crt");
-is_deeply([Sslmgr::get_keys($dir->path)],
+is_deeply([sort (Sslmgr::get_keys($dir->path))],
 	["foo.bar.baz.key", "quux.bar.baz.key"], "get_keys returns both keys");
-is_deeply([Sslmgr::get_certs($dir->path)],
+is_deeply([sort (Sslmgr::get_certs($dir->path))],
 	["foo.bar.quux.crt", "quux.bar.baz.crt"], "get_certs returns both certs");
 is_deeply({Sslmgr::get_keys_and_certs($dir->path)},
 	{"foo.bar.baz" => ["foo.bar.baz.key", undef],
@@ -34,9 +34,9 @@ is_deeply({Sslmgr::get_keys_and_certs($dir->path)},
 	"get_keys_and_certs links new key + cert");
 
 $dir->touch("bar.baz.chain.crt");
-is_deeply([Sslmgr::get_keys($dir->path)],
+is_deeply([sort (Sslmgr::get_keys($dir->path))],
 	["foo.bar.baz.key", "quux.bar.baz.key"], "get_keys doesn't return chain crt");
-is_deeply([Sslmgr::get_certs($dir->path)],
+is_deeply([sort (Sslmgr::get_certs($dir->path))],
 	["foo.bar.quux.crt", "quux.bar.baz.crt"], "get_certs doesn't return chain crt");
 is_deeply({Sslmgr::get_keys_and_certs($dir->path)},
 	{"foo.bar.baz" => ["foo.bar.baz.key", undef],
@@ -45,9 +45,9 @@ is_deeply({Sslmgr::get_keys_and_certs($dir->path)},
 	"get_keys_and_certs doesn't return chain crt");
 
 $dir->touch("bar.baz.txt");
-is_deeply([Sslmgr::get_keys($dir->path)],
+is_deeply([sort (Sslmgr::get_keys($dir->path))],
 	["foo.bar.baz.key", "quux.bar.baz.key"], "get_keys doesn't return txt file");
-is_deeply([Sslmgr::get_certs($dir->path)],
+is_deeply([sort (Sslmgr::get_certs($dir->path))],
 	["foo.bar.quux.crt", "quux.bar.baz.crt"], "get_certs doesn't return txt file");
 is_deeply({Sslmgr::get_keys_and_certs($dir->path)},
 	{"foo.bar.baz" => ["foo.bar.baz.key", undef],
