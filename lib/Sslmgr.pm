@@ -38,7 +38,7 @@ sub get_keys {
 =head2 get_certs($keydir)
 
 Returns an array with relative paths of all *.crt files from the given keydir,
-but not .chain.crt.
+but not .chain.crt or .chainonly.crt.
 
 This method calls die() if the directory was unreadable.
 
@@ -47,7 +47,7 @@ This method calls die() if the directory was unreadable.
 sub get_certs {
 	my ($keydir) = @_;
 	opendir my $dh, $keydir or die "Failed to open keydir $keydir: $!\n";
-	my @files = grep { /\.crt$/ && !/\.chain\.crt$/ && -f "$keydir/$_" } readdir($dh);
+	my @files = grep { /\.crt$/ && !/\.chain\.crt$/ && !/\.chainonly\.crt$/ && -f "$keydir/$_" } readdir($dh);
 	closedir $dh;
 	return @files;
 }
@@ -292,6 +292,8 @@ sub build_chain {
 	my $certpath = $keydir . '/' . $certfile;
 	my $chainfile = $cn . '.chain.crt';
 	my $chainpath = $keydir . '/' . $chainfile;
+	my $chainonlyfile = $cn . '.chainonly.crt';
+	my $chainonlypath = $keydir . '/' . $chainonlyfile;
 	if(! -f $certpath) {
 		die "Can't build a chain for $cn: that certificate does not exist.\n";
 	}
@@ -332,6 +334,15 @@ sub build_chain {
 				print $fh $_->as_string();
 			}
 			close $fh;
+
+			my @intermediaries = @certs_in_chain;
+			shift @intermediaries;
+			open $fh, '>', $chainonlypath or die $!;
+			foreach(reverse @intermediaries) {
+				print $fh $_->as_string();
+			}
+			close $fh;
+
 			return (
 				built => 1,
 				cn => $cn,
@@ -363,12 +374,14 @@ sub store_cert {
 
 	my $file = $keydir . '/' . $cn . '.crt';
 	my $chainfile = $keydir . '/' . $cn . '.chain.crt';
+	my $chainonlyfile = $keydir . '/' . $cn . '.chainonly.crt';
 
 	if(-f $file) {
 		rename($file, $file . '.old') or die $!;
 	}
 	if(-f $chainfile) {
 		unlink($chainfile) or die $!;
+		unlink($chainonlyfile);
 	}
 
 	open my $fh, '>', $file or die $!;

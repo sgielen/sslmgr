@@ -1,4 +1,4 @@
-use Test::More tests => 32;
+use Test::More tests => 34;
 use Test::Directory;
 use Sslmgr;
 
@@ -23,6 +23,7 @@ is($build_result->{'chain'}[0]->subject,
 	"Chain consists of right certificate");
 ok(Sslmgr::has_chain($ssl->path, "www.simple.com"), "Chain built succesfully");
 $ssl->has("www.simple.com.chain.crt", "Chain built succesfully");
+$ssl->has("www.simple.com.chainonly.crt", "Chainonly built succesfully");
 $root->is_ok("no missing or new files");
 $ssl->is_ok("no missing or new files");
 
@@ -63,6 +64,7 @@ is($build_result->{'chain'}[1]->subject,
 	"Intermediary certificate follows in chain");
 ok(Sslmgr::has_chain($ssl->path, "www.example.com"), "Chain built succesfully");
 $ssl->has("www.example.com.chain.crt", "Chain built succesfully");
+$ssl->has("www.example.com.chainonly.crt", "Chainonly built succesfully");
 $root->is_ok("no missing or new files");
 $ssl->is_ok("no missing or new files");
 
