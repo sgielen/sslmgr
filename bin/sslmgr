@@ -70,6 +70,8 @@ EOF
 	my %keys_and_certs = Sslmgr::get_keys_and_certs($SSLKEYDIR);
 	my $missing_keys = 0;
 	my $missing_certs = 0;
+	my $expiring_certs = 0;
+	my $expired_certs = 0;
 
 	my $cn_length = 0;
 	foreach my $cn (keys %keys_and_certs) {
@@ -98,8 +100,10 @@ EOF
 			my $expiring_soon = $period->years == 0 && $period->months < 2;
 			if($period->is_negative()) {
 				$validity = serious("No longer valid:") . " valid until " . duration_string($period) . " ago";
+				$expired_certs++;
 			} elsif($expiring_soon) {
 				$validity = warning("Expiring soon:") . " expires in " . duration_string($period);
+				$expiring_certs++;
 			} else {
 				$validity = "expires in " . duration_string($period);
 			}
@@ -112,11 +116,17 @@ EOF
 		}
 
 		print $validity . "\n";
+		print $spaces . "Validity from " . $dt_begin->ymd . " until " . $dt_end->ymd . "\n";
+		# TODO: display information about the chain
 	}
 	printf("\n%d key/cert combinations found.\n", scalar keys %keys_and_certs);
 	if($missing_keys > 0 || $missing_certs > 0) {
 		printf("Warning: %d keys and %d certificates were missing.\n",
 			$missing_keys, $missing_certs);
+	}
+	if($expiring_certs > 0 || $expired_certs > 0) {
+		printf("Warning: %s keys found. Use 'sslmgr renew <CN>' to start renewing.\n",
+			$expired_certs > 0 ? "expired" : "expiring");
 	}
 } elsif($command eq "new" || $command eq "renew") {
 	if(@ARGV != 1) {
