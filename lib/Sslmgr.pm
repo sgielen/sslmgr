@@ -94,6 +94,18 @@ sub get_cert_info {
 	return Crypt::OpenSSL::X509->new_from_file($certpath);
 }
 
+=head2 get_cert_info_for_contents($certcontents)
+
+Returns a Crypt::OpenSSL::X509 object containing information on the given
+certificate.
+
+=cut
+
+sub get_cert_info_for_contents {
+	my ($certcontents) = @_;
+	return Crypt::OpenSSL::X509->new_from_string($certcontents);
+}
+
 =head2 get_cert_validity_period($keydir, $certname)
 
 Returns two DateTimes, corresponding to the begin and end validity periods
@@ -166,4 +178,77 @@ sub get_configfile_for_cn {
 	close $cfh;
 	close $fh;
 	return $cfile;
+}
+
+=head2 is_trusted_root_cert($rootstore, $subject)
+
+Walks through the rootstore and finds a certificate that matches the given
+subject.
+
+=cut
+
+sub is_trusted_root_cert {
+	my ($rootstore, $subject) = @_;
+	opendir my $dh, $rootstore or die "Failed to open rootstore $rootstore: $!\n";
+	while((my $file = readdir($dh))) {
+		if(! -r $rootstore . '/' . $file) {
+			# skip file
+			next;
+		}
+		open my $fh, '<', $rootstore . '/' . $file or die $!;
+		my @certs = split_marked_files($fh);
+		close $fh;
+		foreach my $cert (@certs) {
+			if($subject eq get_cert_info_for_contents($cert->[1])->subject) {
+				return 1;
+			}
+		}
+	}
+	closedir $dh;
+	return 0;
+}
+
+=head2 split_marked_files($input)
+
+Split the given input using file markers used in PEM files. Every file in the
+input starts with a '-----BEGIN <filetype>-----' marker and ends with a
+'-----END <filetype>----' marker. Lines outside such markers are ignored, and
+markers must match up. Returns a list of files, where every file is represented
+as ["<filetype>", "file contents including markers"].
+
+=cut
+
+sub split_marked_files {
+	my ($input) = @_;
+	my $handle;
+	if(ref($input) && ref($input) eq "GLOB") {
+		$handle = $input;
+	} else {
+		open $handle, '<', \$input or die $!;
+	}
+	my $filetype;
+	my $file = "";
+	my @files;
+	while(<$handle>) {
+		if(/^-----END (.+)-----$/) {
+			if(!$filetype || $filetype ne $1) {
+				die "Corrupt input: expected end of $filetype, got end of $1\n";
+			}
+			push @files, [$filetype, $file . $_];
+			$file = "";
+			undef $filetype;
+			next;
+		} elsif(/^-----BEGIN (.+)-----$/) {
+			$filetype = $1;
+		}
+		if(!$filetype) {
+			# ignore lines outside a marked block
+			next;
+		}
+		$file .= $_;
+	}
+	if($file ne "") {
+		die "Corrupt input: expected END of $filetype.\n";
+	}
+	return @files;
 }
