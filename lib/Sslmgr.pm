@@ -199,7 +199,7 @@ sub is_trusted_root_cert {
 		my @certs = split_marked_files($fh);
 		close $fh;
 		foreach my $cert (@certs) {
-			if($subject eq get_cert_info_for_contents($cert->[1])->subject) {
+			if($cert->[0] eq "CERTIFICATE" && $subject eq get_cert_info_for_contents($cert->[1])->subject) {
 				return 1;
 			}
 		}
