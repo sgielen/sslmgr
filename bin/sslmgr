@@ -147,6 +147,36 @@ EOF
 	my $cn = shift;
 	my $csrfile = "$SSLKEYDIR/$cn.csr";
 	dumpcsr($csrfile);
+} elsif($command eq "import") {
+	if(@ARGV == 0) {
+		warn "Reading from stdin; go ahead...\n";
+	}
+	my $input = "";
+	while(<>) {
+		$input .= $_;
+	}
+	my @files = Sslmgr::split_marked_files($input);
+	foreach(@files) {
+		my ($type, $contents) = @$_;
+		if($type eq "CERTIFICATE") {
+			my @chain_builds = Sslmgr::import_certificate($SSLKEYDIR, $SSLROOTDIR, $contents);
+			if(!@chain_builds) {
+				# certificate was ignored
+				next;
+			}
+			foreach my $build (@chain_builds) {
+				if($build->{'built'}) {
+					print "Chain " . $build->{'cn'} . " is done! No further imports are necessary.\n";
+				} else {
+					print "Could not build chain for " . $build->{'cn'} . " yet: missing intermediary certificate:\n";
+					print "  " . $build->{'missing_subject'} . "\n";
+					print "Find this certificate and use 'sslmgr import' to import it.\n";
+				}
+			}
+		} else {
+			warn "Ignoring marked file of unexpected type '$type'\n";
+		}
+	}
 } else {
 	warn "Unknown command: $command\n";
 	pod2usage(1);
@@ -236,3 +266,4 @@ sslmgr [options ...] <command> [arguments ...]
    ls                       Show the current list of keys
    new / renew              Generate a new key and CSR
    getcsr                   Retrieve an existing CSR
+   import                   Import an (intermediary) certificate

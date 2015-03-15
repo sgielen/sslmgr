@@ -106,16 +106,16 @@ sub get_cert_info_for_contents {
 	return Crypt::OpenSSL::X509->new_from_string($certcontents);
 }
 
-=head2 get_cert_validity_period($keydir, $certname)
+=head2 get_cert_validity_period($keydir, $cert)
 
-Returns two DateTimes, corresponding to the begin and end validity periods
-of the given certificate.
+Returns two DateTimes, corresponding to the begin and end validity periods of
+the given certificate (which can be a filename or the result of get_cert_info).
 
 =cut
 
 sub get_cert_validity_period {
-	my ($keydir, $certname) = @_;
-	my $cert_info = get_cert_info($keydir, $certname);
+	my ($keydir, $cert) = @_;
+	my $cert_info = ref($cert) ? $cert : get_cert_info($keydir, $cert);
 	my $df = DateTime::Format::x509->new();
 	my $dt_begin = $df->parse_datetime($cert_info->notBefore());
 	my $dt_after = $df->parse_datetime($cert_info->notAfter());
@@ -274,13 +274,14 @@ imported intermediary certificates.
 
 If a trusted path to a certificate in the root store can be found, this method
 creates a chain certificate file with all the intermediary certificates and the
-final certificate, then returns a hashmap with 'built' set to a true value and
-'chain' set to the list of certificates used to build the chain.
+final certificate, then returns a hashmap with 'built' set to a true value,
+'cn' set to the Common Name of the chain that was just built, and 'chain' set
+to the list of certificates used to build the chain.
 
 If no path can be found, this method returns a hashmap with 'built' set to a
-false value, 'chain' set to the list of certificates found so far, and
-'missing_subject' conveniently set to the issuer_subject of the last
-certificate in the chain.
+false value, 'chain' set to the list of certificates found so far, 'cn' set to
+the Common Name of the chain that failed to build, and 'missing_subject'
+conveniently set to the issuer_subject of the last certificate in the chain.
 
 =cut
 
@@ -333,6 +334,7 @@ sub build_chain {
 			close $fh;
 			return (
 				built => 1,
+				cn => $cn,
 				chain => \@certs_in_chain,
 			);
 		}
@@ -343,7 +345,154 @@ sub build_chain {
 	my $last_cert = $certs_in_chain[$#certs_in_chain];
 	return (
 		built => 0,
+		cn => $cn,
 		chain => \@certs_in_chain,
 		missing_subject => $last_cert->issuer,
 	);
+}
+
+=head2 store_cert($keydir, $cn, $contents)
+
+Stores the given certificate. Also removes any existing chain, since it will
+become incorrect upon storing the given certificate.
+
+=cut
+
+sub store_cert {
+	my ($keydir, $cn, $contents) = @_;
+
+	my $file = $keydir . '/' . $cn . '.crt';
+	my $chainfile = $keydir . '/' . $cn . '.chain.crt';
+
+	if(-f $file) {
+		rename($file, $file . '.old') or die $!;
+	}
+	if(-f $chainfile) {
+		unlink($chainfile) or die $!;
+	}
+
+	open my $fh, '>', $file or die $!;
+	print $fh $contents;
+	close $fh;
+}
+
+=head2 store_intermediary_cert($keydir, $contents)
+
+Stores the given intermediary certificate. No chains will be auto-constructed.
+
+=cut
+
+sub store_intermediary_cert {
+	my ($keydir, $contents) = @_;
+
+	my $cert_info = get_cert_info_for_contents($contents);
+
+	if($cert_info->is_selfsigned) {
+		die "Refusing to store self-signed certificate in intermediary store.\n";
+	}
+
+	my $intermediary_dir = $keydir . '/.intermediary/';
+	if(! -d $intermediary_dir) {
+		mkdir($intermediary_dir);
+	}
+
+	my $hash = $cert_info->hash;
+	my $filename = $intermediary_dir . $hash . '.crt';
+	open my $fh, '>', $filename or die $!;
+	print $fh $contents;
+	close $fh;
+}
+
+=head2 get_key_modulus($keydir, $keyname)
+
+Return the modulus for the given key name, or call die() if that key doesn't exist.
+
+=cut
+
+sub get_key_modulus {
+	my ($keydir, $keyname) = @_;
+	my $filename = $keydir . '/' . $keyname;
+	if(! -f $filename) {
+		die "No such key";
+	}
+	my $modulus = `openssl rsa -modulus -noout -in $filename`;
+	$modulus =~ s/^modulus=(.+)$/$1/i;
+	1 while chomp $modulus;
+	return $modulus;
+}
+
+=head2 import_certificate($keydir, $rootstore, $contents)
+
+Import the given certificate to the keydir. If it is an existing root
+certificate, a warning is issued and no changes are made. If it is a new or
+newer certificate for an existing key, it is imported as the certificate for
+that key and a chain build is attempted. If it is an intermediary certificate
+currently needed for a chain build, it is imported as an intermediary
+certificate and another chain build is attempted.
+
+This method returns a list of all chain builds attempted. If this list is
+empty, the certificate was ignored.
+
+=cut
+
+sub import_certificate {
+	my ($keydir, $rootstore, $contents) = @_;
+
+	my $cert_info = get_cert_info_for_contents($contents);
+	if(is_trusted_root_cert($rootstore, $cert_info->subject)) {
+		warn "Certificate to import is already a trusted root certificate, ignoring.\n";
+		return;
+	}
+
+	if($cert_info->is_selfsigned) {
+		warn "Certificate to import is self-signed, refusing to import.\n";
+		return;
+	}
+
+	my ($dt_begin, $dt_end) = get_cert_validity_period($keydir, $cert_info);
+	my %keys_and_certs = get_keys_and_certs($keydir);
+	my @chains;
+	foreach my $cn (keys %keys_and_certs) {
+		my ($key, $known_cert) = @{$keys_and_certs{$cn}};
+		my $known_cert_info = get_cert_info($keydir, $known_cert) if $known_cert;
+
+		# First check: already imported?
+		if($known_cert && $cert_info->serial eq $known_cert_info->serial) {
+			warn "Certificate for " . $known_cert_info->subject . " already imported for CN $cn, ignoring.\n";
+			return;
+		}
+
+		# Second check: cert for an existing key?
+		my ($known_dt_begin, $known_dt_end) = get_cert_validity_period($keydir, $known_cert_info) if $known_cert_info;
+		if($key && get_key_modulus($keydir, $key) eq $cert_info->modulus) {
+			# This is the cert for this key. If there is no current cert or the new cert
+			# starts later than the current cert, we overwrite it and start building a
+			# chain again.
+			if(!$known_cert || $known_dt_begin < $dt_begin) {
+				store_cert($keydir, $cn, $contents);
+				print "Certificate imported for Common Name $cn.\n";
+				return {build_chain($keydir, $rootstore, $cn)};
+			}
+		}
+
+		# Third check: cert for a cert without a chain?
+		if(!has_chain($keydir, $cn) && -f "$keydir/$cn.crt") {
+			my %chain_result = build_chain($keydir, $rootstore, $cn);
+			if(!$chain_result{'built'} && $chain_result{'missing_subject'} eq $cert_info->subject) {
+				# This is the missing chain cert, import it
+				store_intermediary_cert($keydir, $contents);
+				print "Certificate imported as intermediary for Common Name $cn.\n";
+
+				# Try to build a new chain
+				%chain_result = build_chain($keydir, $rootstore, $cn);
+				push @chains, \%chain_result;
+
+				# Don't return, this cert may be an intermediary for multiple chains
+			} else {
+				push @chains, \%chain_result;
+			}
+		}
+	}
+
+	return @chains;
 }
