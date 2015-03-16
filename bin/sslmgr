@@ -105,7 +105,7 @@ EOF
 				$validity = warning("Expiring soon:") . " expires in " . duration_string($period);
 				$expiring_certs++;
 			} else {
-				$validity = "expires in " . duration_string($period);
+				$validity = good("Valid:") . " expires in " . duration_string($period);
 			}
 		}
 
@@ -189,6 +189,10 @@ sub serious {
 
 sub warning {
 	return colored(['bold bright_yellow'], $_[0]);
+}
+
+sub good {
+	return colored(['bold bright_green'], $_[0]);
 }
 
 sub duration_string {
